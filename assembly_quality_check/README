@@ -7,3 +7,5 @@ asm_final_stats is a snakemake file I used to generate assembly stats for the fi
 get_accuracy_depth is a snakemake file I used to calculate the base-level accuracy and the long-read alignment depth
 
 mykat.sh shows how the KAT analysis was done
+
+BUSCO.sh shows how the BUSCO analysis was done

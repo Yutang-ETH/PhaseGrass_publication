@@ -1,0 +1,31 @@
+# I want to calculate some statistics for the final assemblies
+
+# 22.02.2024
+
+# By Yutang, MPB, ETH Zurich
+
+##################################################################
+# import module
+import os
+
+# path to asm_polish
+path_asm_contig = '/home/yutachen/public/Yutangchen/pan_asm_evaluation/phasegrass_manual/asm_contig'
+
+# get a list of assemblies
+asm_contig = os.listdir(path_asm_contig)
+
+##################################################################
+rule all:
+	input:
+		'CONTIG_assemblies.stats'
+
+# generate stats
+rule seqkit_stats:
+	input:
+		asm = expand('asm_contig/{myasm}', myasm = asm_contig)
+	output:
+		'CONTIG_assemblies.stats'
+	shell:
+		'''
+		assembly-stats -t {input.asm} > {output}
+		'''  

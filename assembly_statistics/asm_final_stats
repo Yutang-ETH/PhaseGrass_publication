@@ -1,0 +1,67 @@
+# I want to calculate some statistics for the final assemblies
+
+# 22.02.2024
+
+# By Yutang, MPB, ETH Zurich
+
+##################################################################
+# import module
+import os
+
+# path to asm_polish
+path_asm_final = '/home/yutachen/public/Yutangchen/pan_asm_evaluation/phasegrass_manual/asm_final'
+
+# get a list of assemblies
+asm_final = os.listdir(path_asm_final)
+
+##################################################################
+rule all:
+	input:
+		'FINAL_assemblies.stats',
+		expand('asm_final_chr/{myasm}.chr.gap.bed', myasm = asm_final)
+
+# extract chromosomes
+rule seqkit_grep_chr:
+	input:
+		asm = 'asm_final/{myasm}'
+	output:
+		asm_chr = 'asm_final_chr/{myasm}.chr.fasta'
+	shell:
+		'''
+		seqkit grep -p chr -r {input} > {output}
+		'''
+
+# extract unplaced
+rule seqkit_grep_unplaced:
+	input:
+		asm = 'asm_final/{myasm}'
+	output:
+		asm_unplaced = 'asm_final_unplaced/{myasm}.un.fasta'
+	shell:
+		'''
+		seqkit grep -p unplaced -r {input} > {output}
+		'''
+
+# generate stats
+rule seqkit_stats:
+	input:
+		asm = expand('asm_final/{myasm}', myasm = asm_final),
+		asm_chr = expand('asm_final_chr/{myasm}.chr.fasta', myasm = asm_final),
+		asm_unplaced = expand('asm_final_unplaced/{myasm}.un.fasta', myasm = asm_final)
+	output:
+		'FINAL_assemblies.stats'
+	shell:
+		'''
+		assembly-stats -t {input.asm} {input.asm_chr} {input.asm_unplaced} > {output}
+		'''  
+
+# find gap
+rule seqkit_locate_gap:
+	input:
+		asm_chr = 'asm_final_chr/{myasm}.chr.fasta'
+	output:
+		'asm_final_chr/{myasm}.chr.gap.bed'
+	shell:
+		'''
+		seqkit locate -p N+ -G -P -r -i --bed {input.asm_chr} > {output}
+		'''

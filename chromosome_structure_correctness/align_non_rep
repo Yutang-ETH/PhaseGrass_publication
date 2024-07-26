@@ -1,0 +1,161 @@
+# this is a snakemake pipeline to align large chromosomes against large chromosomes 
+
+# inspired by tritex pipeline, the idea here is to mask repetitive sequence, and only extract non-repetitve sequences for alignment
+
+# to find repetitive sequence, I use kat sect -E -F, which considers regions with k-mer counts greater than or equal to 2 in the assembly as repetitive sequences 
+
+# author: Yutang Chen,  MPB, ETH Zurich
+
+# 01.03.2024
+
+#################################################################################
+# reference
+reference = 'asm/DH647.h2.fasta'
+query = 'asm/DH647.h1.fasta'
+
+# name of the output folder
+output_prefix = 'DH647_h1_vs_h2'
+
+# threads for k-mer counting
+kthreads = 48
+
+# minimap2 alignment parameters
+# load {Isize} of seq for indexing reference 
+Isize = '5G'
+# load {Ksize} into memory for alignment
+Ksize = '5G'
+# threads for mapping
+mthreads = 48
+#################################################################################
+rule all:
+	input:
+		output_prefix + '/align/q2r_filtered.paf'
+
+# output repetitive sequences with k-mers using kat
+rule get_repetitive_seqs:
+	input:
+		query
+	output:
+		output_prefix + '/kat_sect/sect-repetitive.fa'
+	threads:
+		kthreads
+	params:
+		prefix = output_prefix + '/kat_sect/sect'
+	conda:
+		'WGSalign'
+	shell:
+		'''
+		kat sect -E -F -t 48 -o {params.prefix} {input} {input}
+		'''
+
+# just parse the header to get the position of repetitive seqs in the assembly
+rule get_position_repetitive_seqs:
+	input:
+		output_prefix + '/kat_sect/sect-repetitive.fa'
+	output:
+		output_prefix + '/kat_sect/sect-repetitive.bed'
+	shell:
+		'''
+		grep '>' {input} | tr ':' '_' | tr -d '>' | cut -f1,9,10 -d'_' | tr '_' '\t' > {output}
+		'''
+
+# mask repetitive seqs to Ns as there are gaps with Ns
+rule mask_repetitive_seqs:
+	input:
+		seq = query,
+		bed = output_prefix + '/kat_sect/sect-repetitive.bed'
+	output:
+		output_prefix + '/asm/query_masked.fasta'
+	conda:
+		'WGSalign'
+	shell:
+		'''
+		bedtools maskfasta -fi {input.seq} -bed {input.bed} -fo {output}
+		'''
+
+# get the position of Ns 
+rule get_position_N:
+	input:
+		output_prefix + '/asm/query_masked.fasta'
+	output:
+		output_prefix + '/asm/query_masked.bed'
+	shell:
+		'''
+		seqkit locate --bed -G -P -p 'N+' -r {input} > {output}
+		'''
+
+# get the fai file of the query to make the genome file for bedtools complement
+rule get_samtools_fai:
+	input:
+		output_prefix + '/asm/query_masked.fasta'
+	output:
+		output_prefix + '/asm/query_masked.fasta.fai'
+	shell:
+		'''
+		samtools faidx {input}
+		'''
+
+# make the genome file for bedtools complement
+rule make_genome_for_bedtools_complement:
+	input:
+		output_prefix + '/asm/query_masked.fasta.fai'
+	output:
+		output_prefix + '/asm/query_masked.fasta.genome'
+	shell:
+		'''
+		cut -f1-2 {input} > {output}
+		'''
+
+# get the position of non-Ns in the assembly
+rule get_position_non_N:
+	input:
+		bed = output_prefix + '/asm/query_masked.bed',
+		genome = output_prefix + '/asm/query_masked.fasta.genome'
+	output:
+		output_prefix + '/asm/query_masked_noN.bed'
+	conda:
+		'tritex'
+	shell:
+		'''
+		bedtools complement -i {input.bed} -g {input.genome} > {output}
+		'''
+
+# now get the non-Ns seqs
+rule get_noN_seq:
+	input:
+		bed = output_prefix + '/asm/query_masked_noN.bed',
+		seq = query
+	output:
+		output_prefix + '/asm/query_unique_100bp.fasta'
+	shell:
+		'''
+        seqkit subseq --bed {input.bed} {input.seq} | seqkit seq -m 100 | seqkit replace -p ':.' -r '' > {output}
+        '''
+
+# align the 100 bp seq to ref
+rule align_seq:
+	input:
+		ref = reference,
+		seq = output_prefix + '/asm/query_unique_100bp.fasta'
+	output:
+		output_prefix + '/align/q2r.paf'
+	threads:
+		mthreads
+	params:
+		ref_index_size = Isize,
+		num_base_into_mem = Ksize
+	shell:
+		'''
+        minimap2 -x asm5 -2 -K {params.num_base_into_mem} -I {params.ref_index_size} -t {threads} --secondary=no {input.ref} {input.seq} > {output}
+        '''
+
+# filter the alignment paf by aligned length and mapping quality
+rule filter_paf:
+    input:
+        output_prefix + '/align/q2r.paf'
+    output:
+        output_prefix + '/align/q2r_filtered.paf'
+    shell:
+        '''
+        cut -f1-12 {input} | awk '{{ if(($10 >= 100) && ($12 >= 30)) {{ print }} }}' > {output}
+        '''

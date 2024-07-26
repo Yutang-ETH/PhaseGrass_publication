@@ -10,22 +10,22 @@
 
 #################################################################################
 # reference
-reference = 'asm/DH647.h2.fasta'
-query = 'asm/DH647.h1.fasta'
+reference = 'asm/kyuss.v2.fasta'
+query = 'asm/DH647.h2.fasta'
 
 # name of the output folder
-output_prefix = 'DH647_h1_vs_h2'
+output_prefix = 'DH647_h2_vs_kyuss'
 
 # threads for k-mer counting
-kthreads = 48
+kthreads = 60
 
 # minimap2 alignment parameters
-# load {Isize} of seq for indexing reference 
+# load {Isize} of seq for indexing reference
 Isize = '5G'
 # load {Ksize} into memory for alignment
 Ksize = '5G'
 # threads for mapping
-mthreads = 48
+mthreads = 60
 #################################################################################
 rule all:
 	input:

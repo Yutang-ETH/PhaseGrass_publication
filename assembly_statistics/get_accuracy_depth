@@ -1,0 +1,177 @@
+# this is a snakemake pipeline does two things:
+# 1) doing polca to estimate base-level accuracy 
+# 2) clculate read alignment depth 
+# author: Yutang Chen,  MPB, ETH Zurich
+
+# 20.02.2024
+
+################################################################################
+# There are several stages which generate genome assemblies
+# 1) nextdenovo or hifiasm, generate contigs
+# 2) nextpolish, polishes nextdenovo contigs
+# 3) purge_grass, returns a deduplicated assembly with contigs
+# 4) tritex, produces a chromosome-level unphased haploid assembly 
+# 5) nextdenovo again, but for each haplotype, resulting two sets of contigs
+# 6) nextpolish again, for the phased assemblies, generating polished contigs
+# 7) juice_grass, final chromosome-level haplotype-resolved assemblies
+
+# should check the base-level accuracy and read-alignment coverage for the final stage 7
+
+################################################################################
+# genotype name
+# mygenotype_ont = ['sikem']
+mygenotype_hifi = ['sikem']
+mygenotype = ['sikem']
+
+# long read sequencing platform
+myplatform = ['hifi']
+
+# minimap2 params
+minimap2_I = '6G'
+minimap2_K = '6G'
+
+# samtools params
+samtools_sort_m = '3G'
+
+# mosdepth params
+window_size = 1000000
+
+# conda for alignment depth analysis
+conda_depth = 'GBS'
+
+# conda for polca
+conda_polca = 'masurca'
+
+# path to working directory
+# wd = '/home/yutachen/public/Yutangchen/pan_asm_evaluation'
+
+################################################################################
+rule all:
+	input:
+		# depth_long_ont = expand('{genotype}_map_long/{genotype}_{platform}.regions.bed', genotype = mygenotype_ont, platform = 'ont'),
+        	depth_long_hifi = expand('{genotype}_map_long/{genotype}_{platform}.regions.bed', genotype = mygenotype_hifi, platform = 'hifi'),
+		depth_short = expand('{genotype}_dip/{genotype}.short.regions.bed', genotype = mygenotype)
+
+################################################################################
+# map long reads to the dip asm to calculate read alignment coverage
+# first align long reads to the dip asm using minimap2
+# then index the bam wihth samtools
+# finally calculate alignment coverage using modepth
+
+# map long reads to dip asm
+rule map_long:
+    input:
+        asm = '{genotype}_dip/{genotype}_dip_final.fasta',
+        longread = 'wgs_long/{genotype}_{platform}.fastq.gz'
+    output:
+        '{genotype}_map_long/{genotype}_{platform}.bam'
+    threads: 48
+    params:
+    	map_prefix = 'map-{platform}',
+    	map_I = minimap2_I,
+    	map_K = minimap2_K,
+    	sort_m = samtools_sort_m
+    shell:
+        '''
+        minimap2 -t {threads} -I {params.map_I} -K {params.map_K} -2 -ax {params.map_prefix} {input.asm} {input.longread} --secondary=no | samtools sort -m {params.sort_m} -@ {threads} -o {output}
+        '''
+
+# now index the bam
+rule index_bam:
+    input:
+        '{genotype}_map_long/{genotype}_{platform}.bam'
+    output:
+        '{genotype}_map_long/{genotype}_{platform}.bam.bai'
+    threads: 48
+    shell:
+        '''
+        samtools index -@ {threads} {input}
+        '''
+
+# calculate alignment depth with mosdepth
+rule cal_long_depth:
+    input:
+        bam = '{genotype}_map_long/{genotype}_{platform}.bam',
+        index = '{genotype}_map_long/{genotype}_{platform}.bam.bai'
+    output:
+        '{genotype}_map_long/{genotype}_{platform}.regions.bed.gz'
+    threads: 4
+    params:
+    	mosdepth_by = window_size,
+    	mosdepth_prefix = '{genotype}_map_long/{genotype}_{platform}'
+    conda: 
+    	conda_depth
+    shell:
+        '''
+        mosdepth -n --fast-mode --by {params.mosdepth_by} -t {threads} -m {params.mosdepth_prefix} {input.bam}
+        '''
+
+################################################################################
+# do polca to check base-level accuracy
+# polca will map short reads to dip asm
+
+# do polca
+rule polca:
+	input:
+		asm = '{genotype}_dip/{genotype}_dip_final.fasta',
+		fq1 = 'wgs_short/{genotype}_R1.noN.fastq.gz',
+		fq2 = 'wgs_short/{genotype}_R2.noN.fastq.gz'
+	output:
+		bam = '{genotype}_dip_final.fasta.alignSorted.bam',
+		bai = '{genotype}_dip_final.fasta.alignSorted.bam.bai',
+		report = '{genotype}_dip_final.fasta.report'
+	threads: 48
+	params:
+		sort_m = samtools_sort_m
+	conda:
+		conda_polca
+	shell:
+		'''
+		polca.sh -a {input.asm} -r '{input.fq1} {input.fq2}' -t {threads} -m {params.sort_m} -n
+		'''
+
+################################################################################
+# calculate short read aignment coverage
+# since polca will generate the short-read alignment bam file
+# we can use that bam to calculate short-read alignment coverage
+
+# calculate alignment depth with mosdepth
+rule cal_short_depth:
+    input:
+        bam = '{genotype}_dip_final.fasta.alignSorted.bam',
+        index = '{genotype}_dip_final.fasta.alignSorted.bam.bai',
+        report = '{genotype}_dip_final.fasta.report'
+    output:
+        '{genotype}_dip/{genotype}.short.regions.bed.gz'
+    threads: 4
+    params:
+    	mosdepth_by = window_size,
+    	mosdepth_prefix = '{genotype}_dip/{genotype}.short'
+    conda: 
+    	conda_depth
+    shell:
+        '''
+        mosdepth -n --fast-mode --by {params.mosdepth_by} -t {threads} -m {params.mosdepth_prefix} {input.bam}
+        '''
+
+# decompress the bed file
+rule decompress_long_depth_bed:
+    input:
+        '{genotype}_map_long/{genotype}_{platform}.regions.bed.gz'
+    output:
+        '{genotype}_map_long/{genotype}_{platform}.regions.bed'
+    shell:
+        '''
+        gzip -d -c {input} > {output}
+        '''
+
+# decompress the bed file
+rule decompress_short_depth_bed:
+    input:
+        '{genotype}_dip/{genotype}.short.regions.bed.gz'
+    output:
+        '{genotype}_dip/{genotype}.short.regions.bed'
+    shell:
+        '''
+        gzip -d -c {input} > {output}
+        '''

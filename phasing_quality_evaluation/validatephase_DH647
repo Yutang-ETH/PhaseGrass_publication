@@ -193,35 +193,3 @@ rule cat_h2_snps:
         '''
         cat {input} > {output}
         '''
-# now syri to call SNPs
-# rule syri_h1:
-#     input:
-#         paf = 'h1_chop/{chr}.paf',
-#         ref = 'kyuss/kyuss.{chr}.fasta',
-#         qur = 'h1_chop/DH647.h1.{chr}.chop.fasta'
-#     output:
-#         'syri_h1_{chr}.success'
-#     params: 
-#         pref = 'syri_h1_{chr}',
-#         logn = 'syri_h1_{chr}.log'
-#     conda: 'syri'
-#     shell:
-#         '''
-#         syri -c {input.paf} -r {input.ref} -q {input.qur} --nosr --nosv --cigar --prefix {params.pref} -F P --no-chrmatch --lf {params.logn} && touch {output}
-#         '''
-
-# rule syri_h2:
-#     input:
-#         paf = 'h2_chop/{chr}.paf',
-#         ref = 'kyuss/kyuss.{chr}.fasta',
-#         qur = 'h2_chop/DH647.h2.{chr}.chop.fasta'
-#     output:
-#         'syri_h2_{chr}.success'
-#     params: 
-#         pref = 'syri_h2_{chr}',
-#         logn = 'syri_h2_{chr}.log'
-#     conda: 'syri'
-#     shell:
-#         '''
-#         syri -c {input.paf} -r {input.ref} -q {input.qur} --nosr --nosv --cigar --prefix {params.pref} -F P --no-chrmatch --lf {params.logn} && touch {output}
-#         '''

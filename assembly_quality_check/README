@@ -5,3 +5,5 @@ asm_contig_stats is a snakemake file I used to generate assembly stats for the c
 asm_final_stats is a snakemake file I used to generate assembly stats for the final haplomes
 
 get_accuracy_depth is a snakemake file I used to calculate the base-level accuracy and the long-read alignment depth
+
+mykat.sh shows how the KAT analysis was done

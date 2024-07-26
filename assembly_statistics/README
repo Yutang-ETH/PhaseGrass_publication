@@ -1,4 +1,4 @@
-This folder contains scripts used to calculated assembly statistics
+This folder contains scripts used for assembly quality check
 
 asm_contig_stats is a snakemake file I used to generate assembly stats for the contig-level assemblies
 

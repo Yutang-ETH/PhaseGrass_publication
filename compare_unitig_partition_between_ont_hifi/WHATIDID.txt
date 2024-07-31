@@ -1,0 +1,25 @@
+# 24.02.2024
+
+# I want to compare the phase in the final haplotype between haplotype (hifi + hic) and haplotype (hifi + ont + hic)
+
+# align utg binned by (hifi + hic) to diploid assembly made based on (hifi + ont +hic)
+
+# utg (A and B) should be aligned accordingly to the hapltoype they are from, thus I could tell, for example, if chr1 utgs A contains both phases (a mix of phases, utg1 phase 1 and utg2 phase 2, so on)
+
+# copy the assemblies to asm
+# chr assembly (inlcuding unplaced) based on hifi ont hic
+cat ../juice_hifi/h1.FINAL.fasta ../juice_hifi/h2.FINAL.fasta > asm/sikem_hifionthic_dip.fasta &
+
+# utg binned based on hifi hic
+cat ../sort_grass/binned_seq/A.fa ../sort_grass/binned_seq/B.fa > asm/sikem_hifihic_AB.fasta &
+
+# use the ont phase binned utg as control
+cat ../sort_grass_with_ont_phase/binned_seq/A.fasta ../sort_grass_with_ont_phase/binned_seq/B.fasta > asm/sikem_hifionthic_AB.fasta &
+
+# align utg to dip
+minimap2 -x asm5 -2 -t 48 --secondary=no asm/sikem_hifionthic_dip.fasta asm/sikem_hifihic_AB.fasta > AB2dip.paf
+minimap2 -x asm5 -2 -t 48 --secondary=no asm/sikem_hifionthic_dip.fasta asm/sikem_hifionthic_AB.fasta > ontAB2dip.paf
+
+# filter alignment paf
+grep -v 'unplaced' AB2dip.paf | awk '{{ if(($10 >= 100) && ($12 >= 50) && ($13 == "tp:A:P")) {{ print }} }}' | cut -f1-12 > AB2dip_filtered.paf
+grep -v 'unplaced' ontAB2dip.paf | awk '{{ if(($10 >= 100) && ($12 >= 50) && ($13 == "tp:A:P")) {{ print }} }}' | cut -f1-12 > ontAB2dip_filtered.

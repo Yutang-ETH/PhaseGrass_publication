@@ -9,6 +9,6 @@ plot_phase_DH647.R visualizes the following:
 5 the chromosome-level phase blocks with SNP density
 6 the small phase blocks with SNP density
 
-Data of 1 and 2 were obtained from Kyuss v2.0 publication
+Input data for 1 and 2 were obtained from Kyuss v2.0 publication
 
-Data 4 were prepared with check_phase_chr_alignment_heatmap.R. The input file of check_phase_chr_alignment_heatmap.R was generated using get_phase.sh with the phased VCF from WhatsHap run by DipGrass
+Input data for 4 were prepared with check_phase_chr_alignment_heatmap.R. One input file of check_phase_chr_alignment_heatmap.R was generated using get_phase.sh with the phased VCF from WhatsHap run by DipGrass. Another two input file for check_phase_chr_alignment_heatmap.R were from SNP_call_WGA_DH647

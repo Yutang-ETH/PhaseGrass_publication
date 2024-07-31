@@ -17,6 +17,9 @@ Input data for 3 were generated with check_hic_SNP.R. This R scripts takes the i
 Input data for 4 were genreated with check_phase_with_snp_density.R. 
 This R script takes the phased SNPs extracted by get_phase.sh from the phased VCF genrated by WhatsHap and calculates the ratio of non-Kyuss allele per 1 Mb window.
 
+Input data for 5 and 6 were generated with DH647_phase_block_new.R. This R script takes the phase block list generatd by WhatsHap and the phased SNPs (in the chromosome-level and small phase blocks separately) as input. 
+The phased SNPs with their associated phase blocks were extracted from the phased VCF genreated by WhatsHap using get_phase_block.sh  
+
 Input data for 7 were prepared with check_phase_chr_alignment_heatmap.R. One input file of this R script was generated using get_phase.sh with the phased VCF from WhatsHap. 
 Another two input file for check_phase_chr_alignment_heatmap.R were from SNP_call_WGA_DH647, the whole chromosome alignment between haplomes and kyuss.
 

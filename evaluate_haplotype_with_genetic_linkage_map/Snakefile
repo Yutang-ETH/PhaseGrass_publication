@@ -1,0 +1,184 @@
+# 03.04.2024
+
+# want to make new genetic linkage maps based on the Sikem phased chromosomes
+
+# import os module
+import os
+
+# make folders to store input data
+# mkdir GBS genome
+# copy GBS data to GBS folder
+# copy sikem h1 final assembly to genome folder
+
+GBS = "GBS"
+myref = "genome/sikem_ont_phased_hifi_h2_final.fasta"
+chrs_list = ['chr{}_h1'.format(i) for i in range(1,8)] # change the header accordingly and change chr number accordingly, for 7 chrs, set (1, 8)
+
+thread_each_mapping_job = 8
+
+# get a list of fastq file names 
+myfastq = os.listdir(GBS)
+
+# I want to remove any suffix in the fastq file name, only keep the sample name before the first dot
+mysample = []
+for fastq in myfastq:
+    mysample.append(fastq.split('.')[0])
+
+# mysample = mysample[:5]
+
+rule final_vcf:
+    input:
+        "vcf_f/snp_f_renamed_new_sample_order_sorted.vcf"
+
+rule index_bwa:
+    input:
+        ref=myref
+    output:
+        bwt=myref+'.bwt',
+        amb=myref+'.amb',
+        ann=myref+'.ann',
+        pac=myref+'.pac',
+        sa=myref+'.sa'
+    shell:
+        '''
+        bwa index -a bwtsw {input.ref}
+        '''
+
+rule map_bwa_GBS:
+    input:
+        ref=myref,
+        bwt=myref+'.bwt',
+        amb=myref+'.amb',
+        ann=myref+'.ann',
+        pac=myref+'.pac',
+        sa=myref+'.sa',
+        fq=GBS+'/{sample}.fastq.trim.fq'
+    output:
+        "map/{sample}.bam"
+    threads: 
+        thread_each_mapping_job
+    shell:
+        '''
+        bwa mem -t {threads} {input.ref} {input.fq} | samtools view -@ {threads} -Sbh | samtools sort -@ {threads} -o {output}
+        '''
+
+rule index_bam:
+    input:
+        "map/{sample}.bam"
+    output:
+        "map/{sample}.bam.bai"
+    shell:
+        '''
+        samtools index {input}
+        '''
+
+rule SNP_call_bcftools:
+    input:
+        bam=expand("map/{sample}.bam", sample=mysample),
+        index=expand("map/{sample}.bam.bai", sample=mysample),
+        ref=myref
+    output:
+        "vcf/snp_{chr}.vcf"
+    params:
+        mychr = '{chr}'
+    shell:
+        '''
+        bcftools mpileup -a AD,DP -I -A -r {params.mychr} -f {input.ref} {input.bam} | bcftools call -mv > {output}
+        '''
+
+rule vcf_compress:
+    input:
+        "vcf/snp_{chr}.vcf"
+    output:
+        "vcf/snp_{chr}.vcf.gz"
+    shell:
+        '''
+        bgzip -c {input} > {output}
+        '''
+
+rule vcf_index:
+    input:
+        "vcf/snp_{chr}.vcf.gz"
+    output:
+        "vcf/snp_{chr}.vcf.gz.csi"
+    threads:
+        thread_each_mapping_job
+    shell:
+        '''
+        bcftools index --threads {threads} {input}
+        '''
+
+rule cat_vcf:
+    input:
+        vcf = expand("vcf/snp_{chr}.vcf.gz", chr=chrs_list),
+        vcf_index = expand("vcf/snp_{chr}.vcf.gz.csi", chr=chrs_list)
+    output:
+        "vcf_all/snp_all_chr.vcf.gz"
+    threads: 
+        thread_each_mapping_job
+    shell:
+        '''
+        bcftools concat --threads {threads} -Oz -o {output} {input.vcf}
+        '''
+
+rule SNP_filtering:
+    input:
+        "vcf_all/snp_all_chr.vcf.gz"
+    output:
+        "vcf_f/snp_f.vcf"
+    shell:
+        '''
+        bcftools filter -i 'QUAL>20 && INFO/DP>60' {input} | bcftools view -g het -v snps -m2 -M2 -q 0.03:minor -i 'F_MISSING<0.5' > {output}
+        '''
+
+rule new_header:
+    input:
+        "vcf_f/snp_f.vcf"
+    output:
+        'new_sample_name'
+    shell:
+        '''
+        bcftools view -h {input} | tail -n 1 | cut -f10- | sed 's/map\///g' | sed 's/.bam//g' | tr '\t' '\n'> {output}
+        '''
+
+rule reheader:
+    input:
+        vcf = "vcf_f/snp_f.vcf",
+        new_sample_name = 'new_sample_name'
+    output:
+        "vcf_f/snp_f_renamed.vcf"
+    shell:
+        '''
+        bcftools reheader -s {input.new_sample_name} {input.vcf} > {output}
+        '''
+
+rule new_sample_order:
+    input:
+        'new_sample_name'
+    output:
+        'new_sample_order'
+    shell:
+        '''
+        cat <(grep -v 'lmGbsJP' {input}) <(grep 'lmGbsJP' {input}) > {output} 
+        '''
+
+rule vcf_with_new_sample_order:
+    input:
+        vcf = "vcf_f/snp_f_renamed.vcf",
+        newsample = 'new_sample_order'
+    output:
+        "vcf_f/snp_f_renamed_new_sample_order.vcf"
+    shell:
+        '''
+        bcftools view -S {input.newsample} {input.vcf} > {output}
+        '''
+
+rule sort_vcf_by_position:
+    input:
+        "vcf_f/snp_f_renamed_new_sample_order.vcf"
+    output:
+        "vcf_f/snp_f_renamed_new_sample_order_sorted.vcf"
+    shell:
+        '''
+        bcftools sort {input} > {output}
+        '''

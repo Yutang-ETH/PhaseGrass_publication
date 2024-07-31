@@ -1,0 +1,345 @@
+# this is a snakemake pipeline to get the nonrep and rep seq bed coverage per window for each h1 and h2
+
+# inspired by tritex pipeline, the idea here is to mask repetitive sequence, to get the nonrep seq
+
+# then mask nonrep seq to get the rep seq
+
+# to find shared rep seqs between two haps, I use kat sect -E -F, which considers regions with k-mer counts greater than or equal to 2 in the assembly as shared repetitive sequences 
+
+# author: Yutang Chen,  MPB, ETH Zurich
+
+# 17.05.2024
+
+#################################################################################
+# reference
+reference = 'asm/DH647_h1_final.fasta'
+query = 'asm/DH647_h2_final.fasta'
+
+# name of the output folder
+output_prefix = 'DH647_nonrep_rep_cov'
+
+# threads for k-mer counting
+kthreads = 24
+
+# bedtools window size
+winsize = 1000000
+
+#################################################################################
+rule all:
+	input:
+		output_prefix + '/coverage/ref_windows_nonrep_cov.bed',
+		output_prefix + '/coverage/query_windows_nonrep_cov.bed',
+		output_prefix + '/coverage/ref_windows_rep_cov.bed',
+		output_prefix + '/coverage/query_windows_rep_cov.bed'
+
+# output reference repetitive sequences with k-mers using kat
+rule get_repetitive_seqs_ref:
+	input:
+		myref = reference,
+		myquery = query
+	output:
+		output_prefix + '/kat_sect_ref/sect-repetitive.fa'
+	threads:
+		kthreads
+	params:
+		prefix = output_prefix + '/kat_sect_ref/sect'
+	shell:
+		'''
+		kat sect -E -F -t {threads} -M 2 -o {params.prefix} {input.myref} {input.myquery} 
+		'''
+
+# output query repetitive sequences with k-mers using kat
+rule get_repetitive_seqs_query:
+	input:
+		myref = reference,
+		myquery = query
+	output:
+		output_prefix + '/kat_sect_query/sect-repetitive.fa'
+	threads:
+		kthreads
+	params:
+		prefix = output_prefix + '/kat_sect_query/sect'
+	shell:
+		'''
+		kat sect -E -F -t {threads} -M 2 -o {params.prefix} {input.myquery} {input.myref}
+		'''
+
+# just parse the header to get the position of reference repetitive seqs in the assembly
+rule get_position_repetitive_seqs_ref:
+	input:
+		output_prefix + '/kat_sect_ref/sect-repetitive.fa'
+	output:
+		output_prefix + '/kat_sect_ref/sect-repetitive.bed'
+	shell:
+		'''
+		grep '>' {input} | tr ':' '_' | tr -d '>' | cut -f1,9,10 -d'_' | tr '_' '\t' > {output}
+		'''
+
+# just parse the header to get the position of query repetitive seqs in the assembly
+rule get_position_repetitive_seqs_query:
+	input:
+		output_prefix + '/kat_sect_query/sect-repetitive.fa'
+	output:
+		output_prefix + '/kat_sect_query/sect-repetitive.bed'
+	shell:
+		'''
+		grep '>' {input} | tr ':' '_' | tr -d '>' | cut -f1,9,10 -d'_' | tr '_' '\t' > {output}
+		'''
+
+# mask reference repetitive seqs to Ns as there are gaps with Ns
+rule mask_repetitive_seqs_ref:
+	input:
+		seq = reference,
+		bed = output_prefix + '/kat_sect_ref/sect-repetitive.bed'
+	output:
+		output_prefix + '/asm_ref/ref_masked.fasta'
+	shell:
+		'''
+		bedtools maskfasta -fi {input.seq} -bed {input.bed} -fo {output}
+		'''
+
+# mask query repetitive seqs to Ns as there are gaps with Ns
+rule mask_repetitive_seqs_query:
+	input:
+		seq = query,
+		bed = output_prefix + '/kat_sect_query/sect-repetitive.bed'
+	output:
+		output_prefix + '/asm_query/query_masked.fasta'
+	shell:
+		'''
+		bedtools maskfasta -fi {input.seq} -bed {input.bed} -fo {output}
+		'''
+
+# get the position of Ns in reference
+rule get_position_N_ref:
+	input:
+		output_prefix + '/asm_ref/ref_masked.fasta'
+	output:
+		output_prefix + '/asm_ref/ref_masked.bed'
+	shell:
+		'''
+		seqkit locate --bed -G -P -p 'N+' -r {input} > {output}
+		'''
+
+# get the position of Ns in query
+rule get_position_N_query:
+	input:
+		output_prefix + '/asm_query/query_masked.fasta'
+	output:
+		output_prefix + '/asm_query/query_masked.bed'
+	shell:
+		'''
+		seqkit locate --bed -G -P -p 'N+' -r {input} > {output}
+		'''
+
+# get the fai file of the reference to make the genome file for bedtools complement
+rule get_samtools_fai_ref:
+	input:
+		output_prefix + '/asm_ref/ref_masked.fasta'
+	output:
+		output_prefix + '/asm_ref/ref_masked.fasta.fai'
+	shell:
+		'''
+		samtools faidx {input}
+		'''
+
+# get the fai file of the query to make the genome file for bedtools complement
+rule get_samtools_fai_query:
+	input:
+		output_prefix + '/asm_query/query_masked.fasta'
+	output:
+		output_prefix + '/asm_query/query_masked.fasta.fai'
+	shell:
+		'''
+		samtools faidx {input}
+		'''
+
+# make the ref genome file for bedtools complement
+rule make_genome_for_bedtools_complement_ref:
+	input:
+		output_prefix + '/asm_ref/ref_masked.fasta.fai'
+	output:
+		output_prefix + '/asm_ref/ref_masked.fasta.genome'
+	shell:
+		'''
+		cut -f1-2 {input} > {output}
+		'''
+
+# make the query genome file for bedtools complement
+rule make_genome_for_bedtools_complement_query:
+	input:
+		output_prefix + '/asm_query/query_masked.fasta.fai'
+	output:
+		output_prefix + '/asm_query/query_masked.fasta.genome'
+	shell:
+		'''
+		cut -f1-2 {input} > {output}
+		'''
+
+# get the position of non-Ns in reference
+rule get_position_non_N_ref:
+	input:
+		bed = output_prefix + '/asm_ref/ref_masked.bed',
+		genome = output_prefix + '/asm_ref/ref_masked.fasta.genome'
+	output:
+		output_prefix + '/asm_ref/ref_masked_noN.bed'
+	shell:
+		'''
+		bedtools complement -i {input.bed} -g {input.genome} > {output}
+		'''
+
+# get the position of non-Ns in query
+rule get_position_non_N_query:
+	input:
+		bed = output_prefix + '/asm_query/query_masked.bed',
+		genome = output_prefix + '/asm_query/query_masked.fasta.genome'
+	output:
+		output_prefix + '/asm_query/query_masked_noN.bed'
+	shell:
+		'''
+		bedtools complement -i {input.bed} -g {input.genome} > {output}
+		'''
+
+# mask reference non rep seqs to Ns as there are gaps with Ns
+rule mask_non_rep_seqs_ref:
+	input:
+		seq = reference,
+		bed = output_prefix + '/asm_ref/ref_masked_noN.bed'
+	output:
+		output_prefix + '/asm_ref/ref_nonrep_masked.fasta'
+	shell:
+		'''
+		bedtools maskfasta -fi {input.seq} -bed {input.bed} -fo {output}
+		'''
+
+# mask query none rep seqs to Ns as there are gaps with Ns
+rule mask_non_rep_seqs_query:
+	input:
+		seq = query,
+		bed = output_prefix + '/asm_query/query_masked_noN.bed'
+	output:
+		output_prefix + '/asm_query/query_nonrep_masked.fasta'
+	shell:
+		'''
+		bedtools maskfasta -fi {input.seq} -bed {input.bed} -fo {output}
+		'''
+
+# get the position of Ns in reference nonerep_masked.fasta
+rule get_position_N_non_rep_masked_ref:
+	input:
+		output_prefix + '/asm_ref/ref_nonrep_masked.fasta'
+	output:
+		output_prefix + '/asm_ref/ref_nonrep_masked.bed'
+	shell:
+		'''
+		seqkit locate --bed -G -P -p 'N+' -r {input} > {output}
+		'''
+
+# get the position of Ns in query nonerep_masked.fasta
+rule get_position_N_non_rep_masked_query:
+	input:
+		output_prefix + '/asm_query/query_nonrep_masked.fasta'
+	output:
+		output_prefix + '/asm_query/query_nonrep_masked.bed'
+	shell:
+		'''
+		seqkit locate --bed -G -P -p 'N+' -r {input} > {output}
+		'''
+
+# get the position of non-Ns in the ref_nonrep_masked.fasta
+rule get_position_non_N_non_rep_masked_ref:
+	input:
+		bed = output_prefix + '/asm_ref/ref_nonrep_masked.bed',
+		genome = output_prefix + '/asm_ref/ref_masked.fasta.genome'
+	output:
+		output_prefix + '/asm_ref/ref_masked_noN_rep.bed'
+	shell:
+		'''
+		bedtools complement -i {input.bed} -g {input.genome} > {output}
+		'''
+
+# get the position of non-Ns in the query_nonerep_masked.fasta
+rule get_position_non_N_non_rep_masked_query:
+	input:
+		bed = output_prefix + '/asm_query/query_nonrep_masked.bed',
+		genome = output_prefix + '/asm_query/query_masked.fasta.genome'
+	output:
+		output_prefix + '/asm_query/query_masked_noN_rep.bed'
+	shell:
+		'''
+		bedtools complement -i {input.bed} -g {input.genome} > {output}
+		'''
+
+# make window bed ref
+rule make_windows_ref:
+	input:
+		output_prefix + '/asm_ref/ref_masked.fasta.fai'
+	output:
+		output_prefix + '/asm_ref/ref_windows.bed'
+	params:
+		window = winsize
+	shell:
+		'''
+		bedtools makewindows -g {input} -w {params.window} > {output}
+		'''
+
+# make window bed query
+rule make_windows_query:
+	input:
+		output_prefix + '/asm_query/query_masked.fasta.fai'
+	output:
+		output_prefix + '/asm_query/query_windows.bed'
+	params:
+		window = winsize
+	shell:
+		'''
+		bedtools makewindows -g {input} -w {params.window} > {output}
+		'''
+
+# calculate the nonrep coverage per window ref
+rule calculate_nonrep_cov_per_window_ref:
+	input:
+		nonrepbed = output_prefix + '/asm_ref/ref_masked_noN.bed',
+		winbed = output_prefix + '/asm_ref/ref_windows.bed'
+	output:
+		output_prefix + '/coverage/ref_windows_nonrep_cov.bed'
+	shell:
+		'''
+		bedtools coverage -a {input.winbed} -b {input.nonrepbed} > {output}
+		'''
+
+# calculate the nonrep coverage per window query
+rule calculate_nonrep_cov_per_window_query:
+	input:
+		nonrepbed = output_prefix + '/asm_query/query_masked_noN.bed',
+		winbed = output_prefix + '/asm_query/query_windows.bed'
+	output:
+		output_prefix + '/coverage/query_windows_nonrep_cov.bed'
+	shell:
+		'''
+		bedtools coverage -a {input.winbed} -b {input.nonrepbed} > {output}
+		'''
+
+# calculate the rep coverage per window ref
+rule calculate_rep_cov_per_window_ref:
+	input:
+		repbed = output_prefix + '/asm_ref/ref_masked_noN_rep.bed',
+		winbed = output_prefix + '/asm_ref/ref_windows.bed'
+	output:
+		output_prefix + '/coverage/ref_windows_rep_cov.bed'
+	shell:
+		'''
+		bedtools coverage -a {input.winbed} -b {input.repbed} > {output}
+		'''
+
+# calculate the rep coverage per window query
+rule calculate_rep_cov_per_window_query:
+	input:
+		repbed = output_prefix + '/asm_query/query_masked_noN_rep.bed',
+		winbed = output_prefix + '/asm_query/query_windows.bed'
+	output:
+		output_prefix + '/coverage/query_windows_rep_cov.bed'
+	shell:
+		'''
+		bedtools coverage -a {input.winbed} -b {input.repbed} > {output}
+		'''

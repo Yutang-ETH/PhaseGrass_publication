@@ -1,0 +1,25 @@
+# 03.04.2024
+
+# want to make genetic linkage map based on Sikem phased assembly with GBS data from Sikem x Rabiosa F1 population
+
+# mkdir folders
+mkdir GBS genome
+
+# GBS data copied from P:\Pan_forage_grass\Raw_sequencing_reads\GBS\Rabiosa_Sikem_F1
+# Sikem assembly was copied from juice_grass in Sikem_hifi, the h1 final assembly is used
+# I just realized I should use assemblies from juicer_hifi instead of juice_grass
+cp ~/public/Yutangchen/Sikem_hifi/juice_hifi/h1.FINAL.fasta genome/sikem_ont_phased_hifi_h1_final.fasta &
+cp ~/public/Yutangchen/Sikem_hifi/juice_hifi/h2.FINAL.fasta genome/sikem_ont_phased_hifi_h2_final.fasta &
+
+# GBS mapping and variant calling finished
+
+# copy the R script here make_pedigree.R
+# now make the pedigree file for lepmap3 with the sample names in the final vcf file
+# work in the lepmap folder 
+Rscript make_pedigree.R ../new_sample_order 2 1
+
+# try lep_map3 variant calling pipeline
+# prepare the sorted_bams file
+sed 's/^/map\//' new_sample_order | sed 's/$/.bam/' | tr '\n' '\t' > sorted_bams
+# prepare the mapping.txt file
+cat new_sample_order > mapping.txt

@@ -1,0 +1,205 @@
+# this is a snakemake pipeline for scaffolding haplotype-resolved assemblies of forage grass genomes
+
+# author: Yutang Chen,  MPB, ETH Zurich
+
+# 22.06.2023
+
+################################################################################
+# should make some folders before running the pipeline, mkdir asm hap hic
+# specify data
+SAMPLE = 'redclover'
+hap = ['h1', 'h2']
+HIC = ['redclover_hic_1.fastq', 'redclover_hic_2.fastq']
+
+
+# YaHS parameters
+YaHS_align_hic_fastq_mem = '1G'
+YaHS_align_hic_fastq_threads = 48
+# ENZYME = 'GATC' # DpnII
+YaHS_hic_scaffolding_mp = 10
+YaHS_hic_scaffolding_r = '10000,20000,50000,60000,70000,80000,90000,100000,200000,300000,400000,500000,600000,700000,800000,900000,1000000,2000000,3000000,4000000,5000000,6000000,7000000,8000000,9000000,10000000,20000000,30000000,40000000,50000000,60000000,70000000'
+
+pre_hic_threads = 8
+pre_hic_mem = '32G'
+
+build_hic_mem = '100G'
+juicer_tools = '/home/yutachen/public/Yutangchen/juicer/scripts/common/juicer_tools.jar'
+
+generate_assembly = '/home/yutachen/public/Yutangchen/juicer/3d-dna/utils/generate-assembly-file-from-fasta.awk'
+################################################################################
+rule all:
+	input:
+		expand('yahs_scaffold/{haplotype}/' + SAMPLE + '_' + '{haplotype}.hic', haplotype = hap),
+		expand('yahs_scaffold/{haplotype}/' + SAMPLE + '_' + '{haplotype}.assembly', haplotype = hap)
+
+################################################################################
+# YaHS steps
+# scaffold contigs to chromosoes using YaHS with the agp file from ragtag and Hi-C data
+# map Hi-C to contigs using the arima hic mapping pipeline
+# do YaHS
+
+# index hap assembly
+rule YaHS_index_genome:
+    input:  
+        'hap/' + SAMPLE + '_' + '{haplotype}' + '.fasta'
+    output: 
+        'hap/' + SAMPLE + '_' + '{haplotype}' + '.fasta' + '.bwt'
+    shell:
+        '''
+        bwa index {input}
+        '''
+
+# align HiC fastq file to chrs
+rule YaHS_align_hic_fastq:
+    input:  
+        asm = 'hap/' + SAMPLE + '_' + '{haplotype}' + '.fasta',
+        idx = 'hap/' + SAMPLE + '_' + '{haplotype}' + '.fasta' + '.bwt',
+        fq1 = 'hic/' + HIC[0],
+        fq2 = 'hic/' + HIC[1]
+    output: 
+        'yahs_align/{haplotype}.deduped.bam'
+    params: 
+        mem = YaHS_align_hic_fastq_mem,
+        rg = '@RG\\\\tID:{haplotype}\\\\tSM:{haplotype}'  
+    threads: 
+        YaHS_align_hic_fastq_threads
+    shell:
+        '''
+        bwa mem -t {threads} -5SPM -R {params.rg} -T0 {input.asm} {input.fq1} {input.fq2} | samblaster -M -r | samtools view -Sb - > {output}
+        '''
+
+# sort the bam by read name again
+rule sort_bam_by_readname:
+	input:
+		bam = 'yahs_align/{haplotype}.deduped.bam'
+	output:
+		'yahs_align/{haplotype}.n.sorted.deduped.bam'
+	params:
+		mem = YaHS_align_hic_fastq_mem
+	threads:
+	 	YaHS_align_hic_fastq_threads
+	shell:
+		'''
+		samtools sort -m {params.mem} -@ {threads} -O bam -n -o {output} {input.bam} # sort by read name
+		'''
+
+# get the fai file of the hap assembly as YaHS requires it
+rule YaHS_faidx_hap:
+	input:
+		'hap/' + SAMPLE + '_' + '{haplotype}' + '.fasta'
+	output:
+		'hap/' + SAMPLE + '_' + '{haplotype}' + '.fasta.fai'
+	shell:
+		'''
+		samtools faidx {input}
+		'''
+
+# now start YaHS hic scaffolding
+rule YaHS_hic_scaffolding:
+	input:
+		asm = 'hap/' + SAMPLE + '_' + '{haplotype}' + '.fasta',
+		idx = 'hap/' + SAMPLE + '_' + '{haplotype}' + '.fasta.fai',
+		bam = 'yahs_align/{haplotype}.n.sorted.deduped.bam'
+	output:
+		fasta = 'yahs_scaffold/{haplotype}/' + SAMPLE + '_' + '{haplotype}_scaffolds_final.fa',
+		agp = 'yahs_scaffold/{haplotype}/' + SAMPLE + '_' + '{haplotype}_scaffolds_final.agp',
+		bin = 'yahs_scaffold/{haplotype}/' + SAMPLE + '_' + '{haplotype}.bin'
+	params:
+		output_prefix = 'yahs_scaffold/{haplotype}/' + SAMPLE + '_' + '{haplotype}',
+		mq = YaHS_hic_scaffolding_mp,
+		resolution = YaHS_hic_scaffolding_r
+	shell:
+		'''
+		yahs -o {params.output_prefix} -r {params.resolution} -q {params.mq} {input.asm} {input.bam}
+		'''
+
+# produce hic matrix for JBAT
+rule YaHS_pre_hic:
+	input:
+		idx = 'hap/' + SAMPLE + '_' + '{haplotype}' + '.fasta.fai',
+		agp = 'yahs_scaffold/{haplotype}/' + SAMPLE + '_' + '{haplotype}_scaffolds_final.agp',
+		bin = 'yahs_scaffold/{haplotype}/' + SAMPLE + '_' + '{haplotype}.bin'
+	output:
+		'yahs_scaffold/{haplotype}/' + SAMPLE + '_' + '{haplotype}_alignments_sorted.txt'
+	params:
+		mem = pre_hic_mem,
+		tmp = 'yahs_scaffold/{haplotype}/'
+	threads:
+		pre_hic_threads
+	shell:
+		'''
+		juicer pre {input.bin} {input.agp} {input.idx} | sort -k2,2d -k6,6d -T {params.tmp} --parallel={threads} -S{params.mem} | awk 'NF' > {output}
+		'''
+
+# faidx scaffolds
+rule YaHS_final_scaffold_size:
+	input:
+		'yahs_scaffold/{haplotype}/' + SAMPLE + '_' + '{haplotype}_scaffolds_final.fa'
+	output:
+		'yahs_scaffold/{haplotype}/' + SAMPLE + '_' + '{haplotype}_scaffolds_final.fa.fai'
+	shell:
+		'''
+		samtools faidx {input}
+		'''
+
+# get size
+rule YaHS_get_size:
+	input:
+		'yahs_scaffold/{haplotype}/' + SAMPLE + '_' + '{haplotype}_scaffolds_final.fa.fai'
+	output:
+		'yahs_scaffold/{haplotype}/' + SAMPLE + '_' + '{haplotype}.size'
+	shell:
+		'''
+		cut -f1,2 {input} > {output}
+		'''
+
+# build Hi-C matrix
+rule YaHS_build_hic:
+	input:
+		pre = 'yahs_scaffold/{haplotype}/' + SAMPLE + '_' + '{haplotype}_alignments_sorted.txt',
+		chr_size = 'yahs_scaffold/{haplotype}/' + SAMPLE + '_' + '{haplotype}.size'
+	output:
+		'yahs_scaffold/{haplotype}/' + SAMPLE + '_' + '{haplotype}.hic'
+	params:
+		mem = build_hic_mem,
+		jar = juicer_tools
+	shell:
+		'''
+		java -jar -Xmx{params.mem} {params.jar} pre {input.pre} {output} {input.chr_size}
+		'''
+
+# create assembly file for JBT
+rule YaHS_create_assembly:
+	input:
+		'yahs_scaffold/{haplotype}/' + SAMPLE + '_' + '{haplotype}_scaffolds_final.fa'
+	output:
+		'yahs_scaffold/{haplotype}/' + SAMPLE + '_' + '{haplotype}.assembly'
+	params:
+		generate_assembly_script = generate_assembly
+	shell:
+		'''
+		awk -f {params.generate_assembly_script} {input} > {output}
+		'''
+
+################################################################################
+# ragtag steps
+# scaffold yahs scaffolds to chromosomes using ragtag with minimap2
+
+# ragtag
+# rule ragtag_scaffolding:
+# 	input:
+# 		ref = 'asm/' + ref,
+# 		contigs = 'yahs_scaffold/{haplotype}/' + SAMPLE + '_' + '{haplotype}_scaffolds_final.fa'
+# 	output:
+# 		agp = 'ragtag_{haplotype}/ragtag.scaffold.agp',
+# 		fasta = 'ragtag_{haplotype}/ragtag.scaffold.fasta'
+# 	params:
+# 		output = 'ragtag_{haplotype}',
+# 		myminimap = minimap2_path,
+# 		mm2 = minimap2_parameters
+# 	threads:
+# 		minimap2_threads
+# 	shell:
+# 		'''
+# 		ragtag.py scaffold -t {threads} -u --mm2-params {params.mm2} --aligner {params.myminimap} -o {params.output} {input.ref} {input.contigs}
+# 		'''

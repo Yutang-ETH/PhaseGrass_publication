@@ -23,4 +23,6 @@ The phased SNPs with their associated phase blocks were extracted from the phase
 Input data for 7 were prepared with check_phase_chr_alignment_heatmap.R. One input file of this R script was generated using get_phase.sh with the phased VCF from WhatsHap. 
 Another two input file for check_phase_chr_alignment_heatmap.R were from SNP_call_WGA_DH647, the whole chromosome alignment between haplomes and kyuss.
 
+Dataflow
 
+![phasing_quality_evaluation_DH647](https://github.com/user-attachments/assets/884f87fa-e90d-4945-b260-2525ee6f66f0)

@@ -34,7 +34,7 @@ rule all:
 
 ################################################################################
 # YaHS steps
-# scaffold contigs to chromosoes using YaHS with the agp file from ragtag and Hi-C data
+# scaffold contigs to chromosoes using YaHS with Hi-C data
 # map Hi-C to contigs using the arima hic mapping pipeline
 # do YaHS
 
@@ -180,26 +180,3 @@ rule YaHS_create_assembly:
 		'''
 		awk -f {params.generate_assembly_script} {input} > {output}
 		'''
-
-################################################################################
-# ragtag steps
-# scaffold yahs scaffolds to chromosomes using ragtag with minimap2
-
-# ragtag
-# rule ragtag_scaffolding:
-# 	input:
-# 		ref = 'asm/' + ref,
-# 		contigs = 'yahs_scaffold/{haplotype}/' + SAMPLE + '_' + '{haplotype}_scaffolds_final.fa'
-# 	output:
-# 		agp = 'ragtag_{haplotype}/ragtag.scaffold.agp',
-# 		fasta = 'ragtag_{haplotype}/ragtag.scaffold.fasta'
-# 	params:
-# 		output = 'ragtag_{haplotype}',
-# 		myminimap = minimap2_path,
-# 		mm2 = minimap2_parameters
-# 	threads:
-# 		minimap2_threads
-# 	shell:
-# 		'''
-# 		ragtag.py scaffold -t {threads} -u --mm2-params {params.mm2} --aligner {params.myminimap} -o {params.output} {input.ref} {input.contigs}
-# 		'''

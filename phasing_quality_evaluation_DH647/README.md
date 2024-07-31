@@ -1,4 +1,4 @@
-This folder contains scripts that were used to evaluate phasing quality by PhaseGrass
+This folder contains scripts that were used to evaluate phasing quality of DH647
 
 plot_phase_DH647.R visualizes the following:
 

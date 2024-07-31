@@ -1,0 +1,412 @@
+# this is a snakemake pipeline to align large chromosomes against large chromosomes 
+
+# inspired by tritex pipeline, the idea here is to mask repetitive sequence, and only extract non-repetitve sequences for alignment
+
+# to find repetitive sequence, I use kat sect -E -F, which considers regions with k-mer counts greater than or equal to 2 in the assembly as repetitive sequences 
+
+# well, it is also interesting to align the shared repetitive sequences to the reference to see where they would be aligned
+
+# author: Yutang Chen,  MPB, ETH Zurich
+
+# 06.05.2024
+
+#################################################################################
+# reference
+reference = 'asm/DH647_h1_final.fasta'
+query = 'asm/DH647_h2_final.fasta'
+
+# name of the output folder
+output_prefix = 'DH647_h1_vs_h2'
+
+# threads for k-mer counting
+kthreads = 48
+
+# seq length filter
+len_min = 2000
+len_max = '-1'
+
+# minimap2 alignment parameters
+# load {Isize} of seq for indexing reference 
+Isize = '5G'
+# load {Ksize} into memory for alignment
+Ksize = '5G'
+# threads for mapping
+mthreads = 48
+
+# cigar parser
+cigar_parser = 'bed_cigar_parser.py'
+#################################################################################
+rule all:
+	input:
+		output_prefix + '/align/q2r_norep.txt',
+		output_prefix + '/align/q2r_rep.txt',
+		output_prefix + '/align/q2r_norep_nohit.txt',
+		output_prefix + '/align/q2r_rep_nohit.txt'
+
+# output repetitive sequences with k-mers using kat
+rule get_repetitive_seqs:
+	input:
+		myref = reference,
+		myquery = query
+	output:
+		output_prefix + '/kat_sect/sect-repetitive.fa'
+	threads:
+		kthreads
+	params:
+		prefix = output_prefix + '/kat_sect/sect'
+	shell:
+		'''
+		kat sect -E -F -t {threads} -M 2 -o {params.prefix} {input.myquery} {input.myref}
+		'''
+
+# just parse the header to get the position of repetitive seqs in the assembly
+rule get_position_repetitive_seqs:
+	input:
+		output_prefix + '/kat_sect/sect-repetitive.fa'
+	output:
+		output_prefix + '/kat_sect/sect-repetitive.bed'
+	shell:
+		'''
+		grep '>' {input} | tr ':' '_' | tr -d '>' | cut -f1,9,10 -d'_' | tr '_' '\t' > {output}
+		'''
+
+# mask repetitive seqs to Ns as there are gaps with Ns
+rule mask_repetitive_seqs:
+	input:
+		seq = query,
+		bed = output_prefix + '/kat_sect/sect-repetitive.bed'
+	output:
+		output_prefix + '/asm/query_masked.fasta'
+	shell:
+		'''
+		bedtools maskfasta -fi {input.seq} -bed {input.bed} -fo {output}
+		'''
+
+# get the position of Ns 
+rule get_position_N:
+	input:
+		output_prefix + '/asm/query_masked.fasta'
+	output:
+		output_prefix + '/asm/query_masked.bed'
+	shell:
+		'''
+		seqkit locate --bed -G -P -p 'N+' -r {input} > {output}
+		'''
+
+# get the fai file of the query to make the genome file for bedtools complement
+rule get_samtools_fai:
+	input:
+		output_prefix + '/asm/query_masked.fasta'
+	output:
+		output_prefix + '/asm/query_masked.fasta.fai'
+	shell:
+		'''
+		samtools faidx {input}
+		'''
+
+# make the genome file for bedtools complement
+rule make_genome_for_bedtools_complement:
+	input:
+		output_prefix + '/asm/query_masked.fasta.fai'
+	output:
+		output_prefix + '/asm/query_masked.fasta.genome'
+	shell:
+		'''
+		cut -f1-2 {input} > {output}
+		'''
+
+# get the position of non-Ns in the assembly
+rule get_position_non_N:
+	input:
+		bed = output_prefix + '/asm/query_masked.bed',
+		genome = output_prefix + '/asm/query_masked.fasta.genome'
+	output:
+		output_prefix + '/asm/query_masked_noN.bed'
+	shell:
+		'''
+		bedtools complement -i {input.bed} -g {input.genome} > {output}
+		'''
+
+# now get the non-Ns seqs
+rule get_noN_seq:
+	input:
+		bed = output_prefix + '/asm/query_masked_noN.bed',
+		seq = query
+	output:
+		output_prefix + '/asm/query_unique.fasta'
+	params:
+		lenmin = len_min,
+		lenmax = len_max
+	shell:
+		'''
+        seqkit subseq --bed {input.bed} {input.seq} | seqkit seq -m {params.lenmin} -M {params.lenmax} | seqkit replace -p ':.' -r '' > {output}
+        '''
+
+# align the 100 bp non-repetitive seq to ref
+rule align_seq:
+	input:
+		ref = reference,
+		seq = output_prefix + '/asm/query_unique.fasta'
+	output:
+		output_prefix + '/align/q2r_norep.sam'
+	threads:
+		mthreads
+	params:
+		ref_index_size = Isize,
+		num_base_into_mem = Ksize
+	shell:
+		'''
+        minimap2 -ax asm20 -2 --eqx -K {params.num_base_into_mem} -I {params.ref_index_size} -t {threads} --secondary=no {input.ref} {input.seq} > {output} 
+        '''
+
+# mask none rep seqs to Ns as there are gaps with Ns
+rule mask_none_rep_seqs:
+	input:
+		seq = query,
+		bed = output_prefix + '/asm/query_masked_noN.bed'
+	output:
+		output_prefix + '/asm/query_none_rep_masked.fasta'
+	shell:
+		'''
+		bedtools maskfasta -fi {input.seq} -bed {input.bed} -fo {output}
+		'''
+
+# get the position of Ns in nonerep_masked.fasta
+rule get_position_N_none_rep_masked:
+	input:
+		output_prefix + '/asm/query_none_rep_masked.fasta'
+	output:
+		output_prefix + '/asm/query_none_rep_masked.bed'
+	shell:
+		'''
+		seqkit locate --bed -G -P -p 'N+' -r {input} > {output}
+		'''
+
+# get the position of non-Ns in the query_nonerep_masked.fasta
+rule get_position_non_N_none_rep_masked:
+	input:
+		bed = output_prefix + '/asm/query_none_rep_masked.bed',
+		genome = output_prefix + '/asm/query_masked.fasta.genome'
+	output:
+		output_prefix + '/asm/query_masked_noN_rep.bed'
+	shell:
+		'''
+		bedtools complement -i {input.bed} -g {input.genome} > {output}
+		'''
+
+# get repetitive seqs with length between replen_min and replen_max
+rule get_repetitive_seqs_filter_by_length:
+	input:
+		seq = query,
+		bed = output_prefix + '/asm/query_masked_noN_rep.bed'
+	output:
+		output_prefix + '/asm/query_rep_seq_f.fasta'
+	params:
+		lenmin = len_min,
+		lenmax = len_max
+	shell:
+		'''
+        seqkit subseq --bed {input.bed} {input.seq} | seqkit seq -m {params.lenmin} -M {params.lenmax} | seqkit replace -p ':.' -r '' > {output}
+        '''
+
+# align repetitive seq to ref
+rule aligne_rep_seq:
+	input:
+		ref = reference,
+		seq = output_prefix + '/asm/query_rep_seq_f.fasta'
+	output:
+		output_prefix + '/align/q2r_rep.sam'
+	threads:
+		mthreads
+	params:
+		ref_index_size = Isize,
+		num_base_into_mem = Ksize
+	shell:
+		'''
+        minimap2 -ax asm20 -2 --eqx -K {params.num_base_into_mem} -I {params.ref_index_size} -t {threads} --secondary=no {input.ref} {input.seq} > {output} 
+        '''
+
+# get the unmapped sequences
+rule sam_no_hit_norep:
+	input:
+		output_prefix + '/align/q2r_norep.sam'
+	output:
+		output_prefix + '/align/q2r_norep_nohit.txt'
+	shell:
+		'''
+		samtools view -f4 {input} | awk '{{print $1,length($10)}}' > {output}
+		'''
+
+# get the unmapped sequences
+rule sam_no_hit_rep:
+	input:
+		output_prefix + '/align/q2r_rep.sam'
+	output:
+		output_prefix + '/align/q2r_rep_nohit.txt'
+	shell:
+		'''
+		samtools view -f4 {input} | awk '{{print $1,length($10)}}' > {output}
+		'''
+
+# sam to bam with filtering
+rule sam_to_bam_norep:
+	input:
+		output_prefix + '/align/q2r_norep.sam'
+	output:
+		output_prefix + '/align/q2r_norep.bam'
+	shell:
+		'''
+		samtools view -h -F2048 -q 1 {input} | samtools sort -@ {threads} -O bam -o {output}
+		'''
+
+# sam to bam with filtering
+rule sam_to_bam_rep:
+	input:
+		output_prefix + '/align/q2r_rep.sam'
+	output:
+		output_prefix + '/align/q2r_rep.bam'
+	shell:
+		'''
+		samtools view -h -F2048 -q 1 {input} | samtools sort -@ {threads} -O bam -o {output}
+		'''
+
+# convert bam to bed
+rule bam_to_bed_norep:
+	input:
+		output_prefix + '/align/q2r_norep.bam'
+	output:
+		output_prefix + '/align/q2r_norep.bed'
+	shell:
+		'''
+		bedtools bamtobed -cigar -i {input} | awk '$4 ~ /chr/ {{split($4,a,"_"); if($1==a[1]) {{print}} }}' > {output}
+		'''
+
+# convert bam to bed
+rule bam_to_bed_rep:
+	input:
+		output_prefix + '/align/q2r_rep.bam'
+	output:
+		output_prefix + '/align/q2r_rep.bed'
+	shell:
+		'''
+		bedtools bamtobed -cigar -i {input} | awk '$4 ~ /chr/ {{split($4,a,"_"); if($1==a[1]) {{print}} }}' > {output}
+		'''
+
+# parse cigar
+rule bed_parse_cigar_norep:
+	input:
+		output_prefix + '/align/q2r_norep.bed'
+	output:
+		output_prefix + '/align/q2r_norep.txt'
+	params:
+		cigar_parser
+	shell:
+		'''
+		python {params} {input} > {output}
+		'''
+
+# parse cigar
+rule bed_parse_cigar_rep:
+	input:
+		output_prefix + '/align/q2r_rep.bed'
+	output:
+		output_prefix + '/align/q2r_rep.txt'
+	params:
+		cigar_parser
+	shell:
+		'''
+		python {params} {input} > {output}
+		'''
+
+
+# # filter q2r_norep.paf, only select primary alignment with query length >= 2000, mapping QV >= 30, and query mapped to the same chr of ref  
+# rule filter_norep_paf:
+# 	input:
+# 		output_prefix + '/align/q2r_norep.paf'
+# 	output:
+# 		output_prefix + '/align/q2r_norep_f.paf'
+# 	shell:
+# 		'''
+# 		awk '/tp:A:P/ {{ if($2>=2000 && $12>=30) {{print}} }}' {input} | awk '$6 ~ /chr/ {{split($1,a,"_"); if(a[1]==$6) {{print}} }}' | sort -k6,6 -k8,8n > {output}
+# 		'''
+
+# # filter q2r_rep.paf, only select primary alignment with query length >= 2000, mapping QV >= 30, and query mapped to the same chr of ref  
+# rule filter_rep_paf:
+# 	input:
+# 		output_prefix + '/align/q2r_rep.paf'
+# 	output:
+# 		output_prefix + '/align/q2r_rep_f.paf'
+# 	shell:
+# 		'''
+# 		awk '/tp:A:P/ {{ if($2>=2000 && $12>=30) {{print}} }}' {input} | awk '$6 ~ /chr/ {{split($1,a,"_"); if(a[1]==$6) {{print}} }}' | sort -k6,6 -k8,8n > {output}
+# 		'''
+
+# # call variants from norep_f.paf
+# rule call_variants_norep:
+# 	input:
+# 		output_prefix + '/align/q2r_norep_f.paf'
+# 	output:
+# 		output_prefix + '/variants/q2r_norep_f.variant'
+# 	shell:
+# 		'''
+# 		sort -k6,6 -k8,8n {input} | paftools.js call -L 100 -l 100 > {output}
+# 		'''
+
+# # call variants from rep_f.paf
+# rule call_variants_rep:
+# 	input:
+# 		output_prefix + '/align/q2r_rep_f.paf'
+# 	output:
+# 		output_prefix + '/variants/q2r_rep_f.variant'
+# 	shell:
+# 		'''
+# 		sort -k6,6 -k8,8n {input} | paftools.js call -L 100 -l 100 > {output}
+# 		'''
+
+# # convert paf to delta using ragtag.py paf2delta
+# rule convert_noreppaf_delta:
+#     input:
+#         ref = reference,
+#         qry = output_prefix + '/asm/query_unique_100bp.fasta',
+#         paf = output_prefix + '/align/q2r_norep_f.paf'
+#     output:
+#         output_prefix + '/delta/q2r_norep_f.delta'
+#     shell:
+#         '''
+#         ragtag.py paf2delta -r {input.ref} -q {input.qry} {input.paf} > {output}
+#         '''
+
+# # convert paf to delta using ragtag.py paf2delta
+# rule convert_reppaf_delta:
+#     input:
+#         ref = reference,
+#         qry = output_prefix + '/asm/query_rep_seq_f.fasta',
+#         paf = output_prefix + '/align/q2r_rep_f.paf'
+#     output:
+#         output_prefix + '/delta/q2r_rep_f.delta'
+#     shell:
+#         '''
+#         ragtag.py paf2delta -r {input.ref} -q {input.qry} {input.paf} > {output}
+#         '''
+
+# # call variants using show-snps
+# rule call_variants_norep:
+#     input:
+#         output_prefix + '/delta/q2r_norep_f.delta'
+#     output:
+#         output_prefix + '/variants/q2r_norep_f.variant'
+#     shell:
+#         '''
+#         show-snps -lrHT {input} > {output}
+#         '''
+
+# # call variants using show-snps
+# rule call_variants_rep:
+#     input:
+#         output_prefix + '/delta/q2r_rep_f.delta'
+#     output:
+#         output_prefix + '/variants/q2r_rep_f.variant'
+#     shell:
+#         '''
+#         show-snps -lrHT {input} > {output}
+#         '''

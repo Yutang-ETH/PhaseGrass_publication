@@ -1,0 +1,137 @@
+# this is a snakemake pipeline for mapping hic data to scaffolds with juicer
+
+# author: Yutang Chen,  MPB, ETH Zurich
+
+# 04.07.2023
+
+
+################################################################################
+# make corresponding folders
+# mkdir fastq references restriction_sites
+# copy data to corresponding folder
+
+# copy reads to the fastq folder
+# cp /home/yutachen/public/Yutangchen/S23/S23_nextpolish/tritex/s23/Hic_reads_R1.fastq.gz fastq/s23_hic_reads_R1.fastq.gz &
+# cp /home/yutachen/public/Yutangchen/S23/S23_nextpolish/tritex/s23/Hic_reads_R2.fastq.gz fastq/s23_hic_reads_R2.fastq.gz &
+
+# copy s23 nextdenovo pmolecule to reference folder
+# cp /home/yutachen/public/Yutangchen/S23/S23_nextpolish/tritex/230324_s23_new_pseudomolecules_v1/230324_s23_new_pseudomolecules_v1+unanchored_contigs.fasta references/s23.nextdenovo.fasta &
+
+# make the restriction file
+# /home/yutachen/juicer/misc/generate_site_positions.py DpnII s23 references/s23.nextdenovo.fasta && mv s23_DpnII.txt restriction_sites/ &
+
+# make the genome size file
+# awk 'BEGIN{OFS="\t"}{print $1, $NF}' restriction_sites/s23_DpnII.txt > references/chrom.sizes
+
+# start mapping
+# ./maphic.sh
+
+# create .assembly fole
+# awk -f ./3d-dna/utils/generate-assembly-file-from-fasta.awk references/s23.nextdenovo.fasta > s23.assembly
+
+# produce hic file for manually editting
+# ./3d-dna/visualize/run-assembly-visualizer.sh s23.assembly aligned/merged_nodups.txt
+
+################################################################################
+
+SAMPLE = 'redclover'
+ENZYME  = 'none'
+
+cwd = '/scratch/yutang/redclover/h2'
+
+ASM = 'redclover_h2_scaffolds_final.fa'
+
+hic = ['redclover_hic_R1.fastq', 'redclover_hic_R2.fastq']
+
+juicer_sh = '/scratch/yutang/juicer/scripts/juicer.sh'
+juicer_top = '/scratch/yutang/juicer'
+map_threads = 48
+
+generate_assembly = '/scratch/yutang/juicer/3d-dna/utils/generate-assembly-file-from-fasta.awk'
+generate_hic = '/scratch/yutang/juicer/3d-dna/visualize/run-assembly-visualizer.sh'
+################################################################################
+
+rule all:
+	input:
+		'build_hic.success'
+
+################################################################################
+rule index_scaffold:
+	input:
+		'references/' + ASM 
+	output:
+		'references/' + ASM + '.bwt'
+	shell:
+		'''
+		bwa index {input}
+		'''
+
+# faidx scaffolds
+rule get_faidx:
+	input:
+		'references/' + ASM
+	output:
+		'references/' + ASM + '.fai'
+	shell:
+		'''
+		samtools faidx {input}
+		'''
+
+# get size
+rule get_size:
+	input:
+		'references/' + ASM + '.fai'
+	output:
+		'references/chrom.sizes'
+	shell:
+		'''
+		cut -f1,2 {input} > {output}
+		'''
+
+rule map_hic_with_juicer:
+	input:
+		idx = 'references/' + ASM + '.bwt',
+		ref = 'references/' + ASM,
+		chr_size = 'references/chrom.sizes'
+	output:
+		'map_hic.success'
+	params:
+		juicer = juicer_sh,
+		ID = SAMPLE,
+		WD = cwd,
+		enzyme = ENZYME,
+		top = juicer_top
+	threads:
+		map_threads
+	shell:
+		'''
+		{params.juicer} -e --assembly -t {threads} -T {threads} -g {params.ID} -d {params.WD} -p {input.chr_size} -s {params.enzyme} -z {input.ref} -D {params.top} && touch map_hic.success
+		'''
+
+# create assembly file for JBT
+rule YaHS_create_assembly:
+	input:
+		'references/' + ASM
+	output:
+		SAMPLE + '.assembly'
+	params:
+		generate_assembly_script = generate_assembly
+	shell:
+		'''
+		awk -f {params.generate_assembly_script} {input} > {output}
+		'''
+
+# produce .hic
+rule build_hic:
+	input:
+		suc = 'map_hic.success',
+		assembly = SAMPLE + '.assembly'
+	output:
+		'build_hic.success'
+	params:
+		generate_hic_script = generate_hic,
+		align = 'aligned/merged_nodups.txt'
+	shell:
+		'''
+		bash {params.generate_hic_script} -c {input.assembly} {params.align} && touch build_hic.success
+		'''

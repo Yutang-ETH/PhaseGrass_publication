@@ -6,34 +6,6 @@
 
 
 ################################################################################
-# make corresponding folders
-# mkdir fastq references restriction_sites
-# copy data to corresponding folder
-
-# copy reads to the fastq folder
-# cp /home/yutachen/public/Yutangchen/S23/S23_nextpolish/tritex/s23/Hic_reads_R1.fastq.gz fastq/s23_hic_reads_R1.fastq.gz &
-# cp /home/yutachen/public/Yutangchen/S23/S23_nextpolish/tritex/s23/Hic_reads_R2.fastq.gz fastq/s23_hic_reads_R2.fastq.gz &
-
-# copy s23 nextdenovo pmolecule to reference folder
-# cp /home/yutachen/public/Yutangchen/S23/S23_nextpolish/tritex/230324_s23_new_pseudomolecules_v1/230324_s23_new_pseudomolecules_v1+unanchored_contigs.fasta references/s23.nextdenovo.fasta &
-
-# make the restriction file
-# /home/yutachen/juicer/misc/generate_site_positions.py DpnII s23 references/s23.nextdenovo.fasta && mv s23_DpnII.txt restriction_sites/ &
-
-# make the genome size file
-# awk 'BEGIN{OFS="\t"}{print $1, $NF}' restriction_sites/s23_DpnII.txt > references/chrom.sizes
-
-# start mapping
-# ./maphic.sh
-
-# create .assembly fole
-# awk -f ./3d-dna/utils/generate-assembly-file-from-fasta.awk references/s23.nextdenovo.fasta > s23.assembly
-
-# produce hic file for manually editting
-# ./3d-dna/visualize/run-assembly-visualizer.sh s23.assembly aligned/merged_nodups.txt
-
-################################################################################
-
 SAMPLE = 'redclover'
 ENZYME  = 'none'
 

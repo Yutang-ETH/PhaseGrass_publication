@@ -1,6 +1,6 @@
 # PhaseGrass_publication
 
-Codes used for evaluation and comparison analyses in PhaseGrass publication
+This repo contains codes used for evaluation and comparison analyses in PhaseGrass publication. For PhaseGrass workflow, please see, https://github.com/Yutang-ETH/PhaseGrass
 
 Folder assembly_HEN17 contains scripts used to assemble HEN17 in this work, the red clover genotype published by Bickhart et al., DOI: 10.46471/gigabyte.42
 
@@ -19,3 +19,5 @@ Folder phasing_quality_evaluation_DH647 contains codes used to evaluate phasing 
 Folder phasing_quality_evaluation_Sikem contains codes used to evaluate phasing results of Sikem, corresponding to Fig. 3a
 
 Folder read_unitig_partition_comparison contains codes used to visualize the read and unitig partition results between different methods, corresponding to Fig. 2b, 3b
+
+For questions, please contact Yutang, https://usys.ethz.ch/en/people/profile.MjgzMjE5.TGlzdC82MzcsMzIwMTk3MjIy.html

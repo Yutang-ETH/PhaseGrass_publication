@@ -4,7 +4,7 @@ This repo contains codes used for evaluation and comparison analyses in PhaseGra
 
 Folder assembly_HEN17 contains scripts used to assemble HEN17 in this work, the red clover genotype published by Bickhart et al., DOI: 10.46471/gigabyte.42
 
-Folder assembly_quality_check contains codes used to evaluate the assembly quality, corresponding to Table 1, 2, Fig. 3c, 3c, Supplementary Fig. 2 
+Folder assembly_quality_check contains codes used to evaluate the assembly quality, corresponding to Table 1, 2, Fig. 2c, 3c, Supplementary Fig. 2 
 
 Folder chromosome_structure_correctness contains codes used to evaluate the correctness of pseudo-chromosome structure by whole genome alignment to Kyuss v2.0 (reference), corresponding to Extendended Data Fig. 2c, 4c
 

@@ -12,7 +12,7 @@ cat <(ls -1 map | grep 'bam$' | xargs basename -s '.bam' | grep -v 'lmGbsJP') <(
 # prepare the sorted_bams file
 sed 's/^/map\//' new_sample_order | sed 's/$/.bam/' | tr '\n' '\t' > sorted_bams
 
-# prepare the mapping.txt file
+# prepare the mapping.txt file required by Pileup2Likelihoods
 cat new_sample_order > mapping.txt
 
 # run variant calling in parallel

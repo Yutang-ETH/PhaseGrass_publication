@@ -4,10 +4,10 @@
 mypath=/home/yutachen/public/Yutangchen/Lepmap3_20240208/bin
 
 # prepare the sorted_bams file
-# sed 's/^/map\//' new_sample_order | sed 's/$/.bam/' | tr '\n' '\t' > sorted_bams
+sed 's/^/map\//' new_sample_order | sed 's/$/.bam/' | tr '\n' '\t' > sorted_bams
 
 # prepare the mapping.txt file
-# cat new_sample_order > mapping.txt
+cat new_sample_order > mapping.txt
 
 # run variant calling in parallel
 for i in chr1_h2 chr2_h2 chr3_h2 chr4_h2 chr5_h2 chr6_h2 chr7_h2

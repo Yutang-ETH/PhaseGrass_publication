@@ -1,7 +1,13 @@
 #!/bin/bash
 
 # try lep_map3 variant calling pipeline
+
+# path to the Lempam3 package
 mypath=/home/yutachen/public/Yutangchen/Lepmap3_20240208/bin
+
+# generate new_sample_order
+# map is the folder where the *.bam files are stored
+cat <(ls -1 map | grep 'bam$' | xargs basename -s '.bam' | grep -v 'lmGbsJP') <(ls -1 map | grep 'bam$' | xargs basename -s '.bam' | grep 'lmGbsJP') > new_sample_order
 
 # prepare the sorted_bams file
 sed 's/^/map\//' new_sample_order | sed 's/$/.bam/' | tr '\n' '\t' > sorted_bams

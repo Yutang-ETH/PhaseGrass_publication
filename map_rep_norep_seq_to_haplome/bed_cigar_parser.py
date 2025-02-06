@@ -40,14 +40,14 @@ with open(myinput, 'r') as f:
         # baseINS
         baseINS = [int(i.split('I')[0]) for i in re.findall('\d+I', cigar)]
         # baseSINS, small insertions with length >=1 and <50
-        baseSINS = sum([var for var in baseINS if var >= 1 & var < 50])
+        baseSINS = sum([var for var in baseINS if var >= 1 and var < 50])
         # baseLINS, large insertions with length >=50
         baseLINS = sum([var for var in baseINS if var >= 50])
 
         # baseDEL
         baseDEL = [int(i.split('D')[0]) for i in re.findall('\d+D', cigar)]
         # baseSDEL, small deletions with length >=1 and <50
-        baseSDEL = sum([var for var in baseDEL if var >= 1 & var < 50])
+        baseSDEL = sum([var for var in baseDEL if var >=1 and var < 50])
         # baseLDEL, large insertions with length >=50
         baseLDEL = sum([var for var in baseDEL if var >= 50])
 
